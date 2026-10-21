@@ -159,6 +159,29 @@ adb install -r bin/expensecategorizer-0.1.0-arm64-v8a-debug.apk
 
 ---
 
+## Keyword Library & Categorization Rules
+
+The application uses an extensive seed keyword library in `expense_app/config.py` (`DEFAULT_RULES`) containing over 600 rules across 9 categories (`Food`, `Transportation`, `Bills`, `Shopping`, `Education`, `Health`, `Household`, `Entertainment`, and `Other`), with tailored support for Philippine everyday expenses and Taglish terminology.
+
+### How to Add or Update Keywords
+
+1. Open `expense_app/config.py`.
+2. Locate the appropriate category under `DEFAULT_RULES`.
+3. Add a 4-tuple: `(pattern, category_name, priority, match_mode)`:
+   - `pattern`: Lowercase search phrase or word (e.g. `"pandesal"`, `"meralco"`).
+   - `category_name`: One of the categories defined in `DEFAULT_CATEGORIES`.
+   - `priority`: Integer priority (default `10`; higher values take precedence during conflicts).
+   - `match_mode`:
+     - `"whole_word"`: Recommended for single words and short terms to prevent accidental substring collisions (e.g., `"fare"` vs `"farewell"`).
+     - `"substring"`: Recommended for unique multiword phrases or distinct brand names (e.g., `"water bill"`, `"mercury drug"`).
+4. Run automated tests to verify matching:
+   ```bash
+   python -m pytest tests/test_categorizer.py
+   ```
+5. **Database Updates**: `init_database` and `seed_defaults` idempotently seed newly added default rules into existing SQLite databases without overwriting user customizations or duplicating existing rules.
+
+---
+
 ## Offline-First Guarantee & Privacy
 
 - **No Network Access**: The app requests no internet permissions in `buildozer.spec`.

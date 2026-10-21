@@ -435,3 +435,191 @@ class TestRealExpenseDescriptions:
         result = categorizer.categorize("Mobile load top up")
         assert result.suggested_category == "Bills"
 
+
+# ===================================================================
+# Expanded keyword library tests
+# ===================================================================
+
+
+class TestExpandedKeywordLibrary:
+    """Tests covering the expanded keyword collection from config.DEFAULT_RULES."""
+
+    @pytest.fixture
+    def default_categorizer(self):
+        from expense_app.config import DEFAULT_RULES
+        rules = [
+            CategoryRule(pattern=p, category=c, priority=pr, match_mode=m)
+            for p, c, pr, m in DEFAULT_RULES
+        ]
+        return Categorizer(rules)
+
+    def test_category_rule_counts(self):
+        """Ensure each major category meets the 40+ rules threshold."""
+        from collections import Counter
+        from expense_app.config import DEFAULT_RULES
+
+        counts = Counter(cat for _, cat, _, _ in DEFAULT_RULES)
+        major_categories = [
+            "Food",
+            "Transportation",
+            "Bills",
+            "Shopping",
+            "Education",
+            "Health",
+            "Household",
+            "Entertainment",
+        ]
+        for cat in major_categories:
+            assert counts[cat] >= 40, f"Category '{cat}' has only {counts[cat]} rules, expected >= 40"
+
+        assert counts["Other"] >= 10, f"Category 'Other' has only {counts['Other']} rules, expected >= 10"
+
+    def test_no_duplicate_patterns_in_default_rules(self):
+        """Ensure all rule patterns in DEFAULT_RULES are distinct."""
+        from collections import Counter
+        from expense_app.config import DEFAULT_RULES
+
+        patterns = [p.strip().lower() for p, _, _, _ in DEFAULT_RULES]
+        dupes = [pat for pat, cnt in Counter(patterns).items() if cnt > 1]
+        assert not dupes, f"Found duplicate patterns in DEFAULT_RULES: {dupes}"
+
+    @pytest.mark.parametrize(
+        "desc,expected_cat",
+        [
+            # Food
+            ("Chickenjoy with rice and iced tea", "Food"),
+            ("Mang Inasal merienda with friends", "Food"),
+            ("Almusal tapsilog and pandesal", "Food"),
+            ("Tanghalian sa karinderya", "Food"),
+            ("Hapunan sinigang na baboy", "Food"),
+            ("Order food via Foodpanda delivery", "Food"),
+            ("Milk tea with pearls", "Food"),
+            ("Starbucks cafe latte", "Food"),
+            ("KFC burger and french fries", "Food"),
+            ("Bumili ng ulam sa carinderia", "Food"),
+            ("Buy groceries for meals", "Food"),
+            # Transportation
+            ("Pamasahe sa jeep papuntang MRT", "Transportation"),
+            ("Biyahe pauwi via UV Express", "Transportation"),
+            ("Sakay ng tricycle sa kanto", "Transportation"),
+            ("Gasolina sa Shell refuel", "Transportation"),
+            ("Book a ride with Angkas", "Transportation"),
+            ("JoyRide motorcycle taxi fare", "Transportation"),
+            ("Autosweep RFID toll fee", "Transportation"),
+            ("Car wash and tire repair", "Transportation"),
+            ("Airplane ticket for Cebu trip", "Transportation"),
+            # Bills
+            ("Meralco electric bill payment", "Bills"),
+            ("Maynilad water utility bill", "Bills"),
+            ("Bayad sa kuryente at ilaw", "Bills"),
+            ("Bayad sa tubig payment", "Bills"),
+            ("PLDT fiber internet bill", "Bills"),
+            ("Prepaid mobile load promo", "Bills"),
+            ("Monthly house rent payment", "Bills"),
+            ("Condo dues and HOA dues", "Bills"),
+            ("GCash load topup", "Bills"),
+            # Shopping
+            ("Shopee 10.10 checkout shoes", "Shopping"),
+            ("Lazada online shopping bag", "Shopping"),
+            ("Bumili ng tsinelas sa tiangge", "Shopping"),
+            ("Ukay-ukay jacket and denim jeans", "Shopping"),
+            ("Department store cosmetic makeup", "Shopping"),
+            ("Smartphone powerbank and charger", "Shopping"),
+            ("Zalora dress and heels", "Shopping"),
+            # Education
+            ("Matrikula payment for second semester", "Education"),
+            ("College tuition fee payment", "Education"),
+            ("Review center enrollment fee", "Education"),
+            ("Yellow pad paper and ballpen", "Education"),
+            ("Photocopy of reading modules", "Education"),
+            ("Gamit sa eskwela notebooks", "Education"),
+            ("Scientific calculator for class", "Education"),
+            # Health
+            ("Bumili ng gamot sa Mercury Drug", "Health"),
+            ("Biogesic paracetamol for headache", "Health"),
+            ("Doctor's consultation fee payment", "Health"),
+            ("Dental clinic checkup and cleaning", "Health"),
+            ("Flu shot vaccine injection", "Health"),
+            ("Prescription vitamins at Watsons", "Health"),
+            ("Hospital bill for inpatient care", "Health"),
+            # Household
+            ("Bumili ng detergent sabong panlaba", "Household"),
+            ("Zonrox bleach at dishwashing liquid", "Household"),
+            ("Walis tambo and dustpan for cleaning", "Household"),
+            ("Aircon cleaning and maintenance service", "Household"),
+            ("Repair ng gripo sa lababo", "Household"),
+            ("Light bulb replacement and led bulb", "Household"),
+            ("Ace Hardware nails and screwdriver", "Household"),
+            # Entertainment
+            ("Cinema ticket for evening movie", "Entertainment"),
+            ("Concert ticket live band gig", "Entertainment"),
+            ("Netflix subscription monthly payment", "Entertainment"),
+            ("Spotify premium music streaming", "Entertainment"),
+            ("Enchanted Kingdom theme park tickets", "Entertainment"),
+            ("Arcade Timezone tokens", "Entertainment"),
+            ("Karaoke KTV night with friends", "Entertainment"),
+            ("Valorant points codashop topup", "Entertainment"),
+            # Other
+            ("Miscellaneous sundry items", "Other"),
+            ("Petty cash extra expense", "Other"),
+            ("Uncategorized general expense", "Other"),
+            ("Unspecified random expense", "Other"),
+        ],
+    )
+    def test_expanded_rules_match_expected_category(
+        self, default_categorizer, desc, expected_cat
+    ):
+        result = default_categorizer.categorize(desc)
+        assert (
+            result.suggested_category == expected_cat
+        ), f"Failed for '{desc}': got {result.suggested_category}, ambiguous={result.is_ambiguous}"
+
+    def test_case_insensitivity_and_punctuation(self, default_categorizer):
+        """Matching works with all-uppercase, punctuation, and extra whitespace."""
+        res1 = default_categorizer.categorize("BAYAD SA KURYENTE!")
+        assert res1.suggested_category == "Bills"
+
+        res2 = default_categorizer.categorize("   meralco   power    bill...  ")
+        assert res2.suggested_category == "Bills"
+
+        res3 = default_categorizer.categorize("JOLLIBEE (CHICKENJOY) - DINNER.")
+        assert res3.suggested_category == "Food"
+
+    def test_whole_word_matching_prevents_partial_collisions(
+        self, default_categorizer
+    ):
+        """Whole-word rules must not match unrelated words containing the keyword."""
+        # 'fare' should not match 'farewell' or 'warfare'
+        res1 = default_categorizer.categorize("Attended farewell party for colleague")
+        # should fall back to Other or match party/colleague, not Transportation via 'fare'
+        assert not any(
+            m.rule.pattern == "fare" for m in res1.matches
+        )
+
+        # 'rice' should not match 'price'
+        res2 = default_categorizer.categorize("Asked about the total price of the item")
+        assert not any(
+            m.rule.pattern == "rice" for m in res2.matches
+        )
+
+        # 'soap' / 'mop' should not match partial words
+        res3 = default_categorizer.categorize("Atmosphere was pleasant")
+        assert not any(
+            m.rule.pattern == "mop" for m in res3.matches
+        )
+
+    def test_unrelated_description_falls_back(self, default_categorizer):
+        """Arbitrary unrelated text with no keywords falls back to Other."""
+        result = default_categorizer.categorize("Xy789 Qqzz completely unknown")
+        assert result.is_fallback
+        assert result.suggested_category == "Other"
+
+    def test_ambiguity_flagged_for_tied_priorities(self, default_categorizer):
+        """When keywords from multiple categories tie at top priority, flag ambiguous."""
+        # "movie" (Entertainment, pri=10) and "pizza" (Food, pri=10)
+        result = default_categorizer.categorize("movie and pizza night")
+        assert result.is_ambiguous
+        assert "Entertainment" in result.tied_categories
+        assert "Food" in result.tied_categories
+
+

@@ -115,36 +115,53 @@ def init_database(db_path: Optional[str] = None) -> sqlite3.Connection:
 
 
 def seed_defaults(conn: sqlite3.Connection) -> None:
-    """Seed default categories and keyword rules if categories table is empty."""
+    """Seed default categories and keyword rules idempotently.
+
+    Inserts any missing default categories and adds default rules whose
+    patterns do not already exist in category_rules. This ensures existing
+    databases receive new default rules on upgrade without overwriting
+    user-created rules or duplicating keywords.
+    """
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM categories;")
-    count = cursor.fetchone()[0]
 
-    if count > 0:
-        return
+    # 1. Ensure default categories exist and build name -> id map
+    cursor.execute("SELECT id, name FROM categories;")
+    category_map: dict[str, int] = {
+        row["name"].lower(): row["id"] for row in cursor.fetchall()
+    }
 
-    # Insert default categories
-    category_map: dict[str, int] = {}
-    for cat_name in DEFAULT_CATEGORIES:
-        is_default = 1 if cat_name.lower() == FALLBACK_CATEGORY.lower() else 0
-        cursor.execute(
-            """
-            INSERT INTO categories (name, is_active, is_default)
-            VALUES (?, 1, ?);
-            """,
-            (cat_name, is_default),
-        )
-        category_map[cat_name.lower()] = cursor.lastrowid
+    with conn:
+        for cat_name in DEFAULT_CATEGORIES:
+            key = cat_name.lower()
+            if key not in category_map:
+                is_default = 1 if key == FALLBACK_CATEGORY.lower() else 0
+                cursor.execute(
+                    """
+                    INSERT INTO categories (name, is_active, is_default)
+                    VALUES (?, 1, ?);
+                    """,
+                    (cat_name, is_default),
+                )
+                category_map[key] = cursor.lastrowid
 
-    # Insert starter rules
-    for pattern, cat_name, priority, match_mode in DEFAULT_RULES:
-        cat_id = category_map.get(cat_name.lower())
-        if cat_id is not None:
-            cursor.execute(
-                """
-                INSERT INTO category_rules (pattern, category_id, priority, match_mode, is_enabled)
-                VALUES (?, ?, ?, ?, 1);
-                """,
-                (pattern, cat_id, priority, match_mode),
-            )
+        # 2. Fetch all existing rule patterns to avoid duplicates and respect customizations
+        cursor.execute("SELECT LOWER(TRIM(pattern)) FROM category_rules;")
+        existing_patterns = {row[0] for row in cursor.fetchall()}
+
+        # 3. Insert default rules that do not exist yet
+        for pattern, cat_name, priority, match_mode in DEFAULT_RULES:
+            pat_clean = pattern.strip().lower()
+            if pat_clean in existing_patterns:
+                continue
+
+            cat_id = category_map.get(cat_name.lower())
+            if cat_id is not None:
+                cursor.execute(
+                    """
+                    INSERT INTO category_rules (pattern, category_id, priority, match_mode, is_enabled)
+                    VALUES (?, ?, ?, ?, 1);
+                    """,
+                    (pattern.strip(), cat_id, priority, match_mode),
+                )
+                existing_patterns.add(pat_clean)
 
