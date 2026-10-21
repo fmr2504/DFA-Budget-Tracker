@@ -4,12 +4,150 @@ import sqlite3
 import pytest
 
 from expense_app.data.repositories import (
+    create_expense,
     delete_budget,
     delete_budget_for_category,
     get_budget,
     get_budgets_for_month,
+    get_category_by_name,
+    get_expenses,
     set_budget,
 )
+from expense_app.logic.reporting import calculate_budget_progress, month_range
+
+
+class TestCalculateBudgetProgressPure:
+    def test_no_expenses_under_budget(self):
+        budget = {
+            "category_id": 1,
+            "category_name": "Food",
+            "period_month": "2026-10",
+            "limit_centavos": 100000,
+        }
+        status = calculate_budget_progress(budget, [])
+        assert status.spent_centavos == 0
+        assert status.remaining_centavos == 100000
+        assert status.progress_ratio == 0.0
+        assert status.visual_progress == 0.0
+        assert status.status_level == "normal"
+
+    def test_under_budget_normal(self):
+        budget = {
+            "category_id": 1,
+            "category_name": "Food",
+            "period_month": "2026-10",
+            "limit_centavos": 100000,
+        }
+        expenses = [
+            {"amount_centavos": 50000, "category_id": 1},
+        ]
+        status = calculate_budget_progress(budget, expenses)
+        assert status.spent_centavos == 50000
+        assert status.remaining_centavos == 50000
+        assert status.progress_ratio == 0.5
+        assert status.visual_progress == 0.5
+        assert status.status_level == "normal"
+
+    def test_warning_threshold_at_80_percent(self):
+        budget = {
+            "category_id": 1,
+            "category_name": "Food",
+            "period_month": "2026-10",
+            "limit_centavos": 100000,
+        }
+        expenses = [
+            {"amount_centavos": 80000, "category_id": 1},
+        ]
+        status = calculate_budget_progress(budget, expenses)
+        assert status.spent_centavos == 80000
+        assert status.remaining_centavos == 20000
+        assert status.progress_ratio == 0.8
+        assert status.visual_progress == 0.8
+        assert status.status_level == "warning"
+
+    def test_exact_limit_warning(self):
+        budget = {
+            "category_id": 1,
+            "category_name": "Food",
+            "period_month": "2026-10",
+            "limit_centavos": 100000,
+        }
+        expenses = [
+            {"amount_centavos": 100000, "category_id": 1},
+        ]
+        status = calculate_budget_progress(budget, expenses)
+        assert status.spent_centavos == 100000
+        assert status.remaining_centavos == 0
+        assert status.progress_ratio == 1.0
+        assert status.visual_progress == 1.0
+        assert status.status_level == "warning"
+
+    def test_over_budget_exceeded(self):
+        budget = {
+            "category_id": 1,
+            "category_name": "Food",
+            "period_month": "2026-10",
+            "limit_centavos": 100000,
+        }
+        expenses = [
+            {"amount_centavos": 140000, "category_id": 1},
+        ]
+        status = calculate_budget_progress(budget, expenses)
+        assert status.spent_centavos == 140000
+        # Negative remaining intact
+        assert status.remaining_centavos == -40000
+        assert status.progress_ratio == 1.4
+        # Visual progress clamped to 1.0
+        assert status.visual_progress == 1.0
+        assert status.status_level == "exceeded"
+
+    def test_multiple_categories_filtered(self):
+        budget = {
+            "category_id": 1,
+            "category_name": "Food",
+            "period_month": "2026-10",
+            "limit_centavos": 100000,
+        }
+        expenses = [
+            {"amount_centavos": 20000, "category_id": 1},  # Food
+            {"amount_centavos": 50000, "category_id": 2},  # Transport
+            {"amount_centavos": 30000, "category_id": 1},  # Food
+        ]
+        status = calculate_budget_progress(budget, expenses)
+        assert status.spent_centavos == 50000
+        assert status.remaining_centavos == 50000
+
+
+class TestBudgetDatabaseIntegration:
+    def test_budget_reflects_actual_expenses(self, db_conn):
+        cat_food = get_category_by_name(db_conn, "Food")
+        set_budget(db_conn, cat_food["id"], "2026-10", 100000)
+
+        create_expense(db_conn, 25000, "Lunch", "2026-10-05", cat_food["id"])
+        create_expense(db_conn, 35000, "Dinner", "2026-10-12", cat_food["id"])
+
+        start, end = month_range("2026-10")
+        month_expenses = get_expenses(db_conn, start_date=start, end_date_exclusive=end)
+        budget = get_budget(db_conn, cat_food["id"], "2026-10")
+
+        status = calculate_budget_progress(budget, month_expenses)
+        assert status.spent_centavos == 60000
+        assert status.remaining_centavos == 40000
+        assert status.progress_ratio == 0.6
+        assert status.status_level == "normal"
+
+    def test_removing_budget_preserves_expenses(self, db_conn):
+        cat_food = get_category_by_name(db_conn, "Food")
+        set_budget(db_conn, cat_food["id"], "2026-10", 100000)
+        exp_id = create_expense(db_conn, 25000, "Lunch", "2026-10-05", cat_food["id"])
+
+        # Delete budget
+        delete_budget_for_category(db_conn, cat_food["id"], "2026-10")
+        assert get_budget(db_conn, cat_food["id"], "2026-10") is None
+
+        # Expense still exists
+        expenses = get_expenses(db_conn)
+        assert any(e["id"] == exp_id for e in expenses)
 
 
 class TestBudgetsRepository:

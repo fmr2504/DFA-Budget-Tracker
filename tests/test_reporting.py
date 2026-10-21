@@ -2,7 +2,7 @@
 
 import pytest
 
-from expense_app.logic.reporting import month_range
+from expense_app.logic.reporting import month_range, validate_date
 
 
 class TestMonthRange:
@@ -41,4 +41,21 @@ class TestMonthRange:
             month_range("2026-00")
         with pytest.raises(ValueError, match="Month must be 1–12"):
             month_range("2026-13")
+
+
+class TestValidateDate:
+    def test_valid_dates(self):
+        assert validate_date("2026-10-21") is True
+        assert validate_date("2024-02-29") is True  # leap year
+        assert validate_date("2026-01-01") is True
+
+    def test_invalid_dates(self):
+        assert validate_date("2026-10-32") is False  # 32 days
+        assert validate_date("2025-02-29") is False  # not a leap year
+        assert validate_date("2026-13-01") is False  # invalid month
+        assert validate_date("2026/10/21") is False  # wrong delimiter
+        assert validate_date("2026-1-1") is False    # single digit
+        assert validate_date("invalid") is False
+        assert validate_date("") is False
+
 

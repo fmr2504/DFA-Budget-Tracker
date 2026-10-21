@@ -15,12 +15,16 @@ from kivy.uix.label import Label
 from kivy.uix.screenmanager import Screen
 from kivy.uix.scrollview import ScrollView
 
+from expense_app.data.repositories import get_expenses
+from expense_app.logic.money import format_amount
+from expense_app.logic.reporting import generate_monthly_report, month_range, shift_month
 from expense_app.ui.components import (
     COLOR_PRIMARY,
     COLOR_SURFACE_LIGHT,
     COLOR_TEXT_MUTED,
     COLOR_TEXT_PRIMARY,
     Card,
+    CategoryReportBar,
     EmptyState,
     HeaderBar,
     StatCard,
@@ -69,6 +73,7 @@ class ReportsScreen(Screen):
             font_size="18sp",
             bold=True,
             background_color=COLOR_SURFACE_LIGHT,
+            on_release=lambda _inst: self._navigate_month(-1),
         )
         self.month_lbl = Label(
             text=self.current_month_str,
@@ -84,6 +89,7 @@ class ReportsScreen(Screen):
             font_size="18sp",
             bold=True,
             background_color=COLOR_SURFACE_LIGHT,
+            on_release=lambda _inst: self._navigate_month(1),
         )
         month_bar.add_widget(self.prev_btn)
         month_bar.add_widget(self.month_lbl)
@@ -114,10 +120,10 @@ class ReportsScreen(Screen):
         content.add_widget(stats_row)
 
         # Category Breakdown Card
-        self.breakdown_card = Card(orientation="vertical", size_hint_y=None)
+        self.breakdown_card = Card(orientation="vertical", size_hint_y=None, spacing=10)
         self.breakdown_card.bind(minimum_height=self.breakdown_card.setter("height"))
 
-        breakdown_hdr = Label(
+        self.breakdown_hdr = Label(
             text="CATEGORY BREAKDOWN",
             font_size="12sp",
             bold=True,
@@ -126,19 +132,67 @@ class ReportsScreen(Screen):
             height=24,
             halign="left",
         )
-        breakdown_hdr.bind(size=breakdown_hdr.setter("text_size"))
-        self.breakdown_card.add_widget(breakdown_hdr)
+        self.breakdown_hdr.bind(size=self.breakdown_hdr.setter("text_size"))
+        self.breakdown_card.add_widget(self.breakdown_hdr)
+
+        self.bars_container = BoxLayout(
+            orientation="vertical",
+            size_hint_y=None,
+            spacing=8,
+        )
+        self.bars_container.bind(minimum_height=self.bars_container.setter("height"))
 
         self.empty_reports = EmptyState(
             title="No Data for this Month",
             message=f"No expenses were recorded for {self.current_month_str}.",
         )
-        self.breakdown_card.add_widget(self.empty_reports)
+        self.bars_container.add_widget(self.empty_reports)
+        self.breakdown_card.add_widget(self.bars_container)
         content.add_widget(self.breakdown_card)
 
         scroll.add_widget(content)
         root.add_widget(scroll)
         self.add_widget(root)
+
+    def on_pre_enter(self, *args):
+        """Refresh report analytics when screen becomes active."""
+        self.refresh_reports()
+
+    def _navigate_month(self, offset: int):
+        self.current_month_str = shift_month(self.current_month_str, offset)
+        self.month_lbl.text = self.current_month_str
+        self.refresh_reports()
+
+    def refresh_reports(self):
+        """Query SQLite data and compute report metrics and breakdown bars."""
+        app = App.get_running_app()
+        conn = getattr(app, "conn", None)
+        if not conn:
+            return
+
+        start_date, end_date = month_range(self.current_month_str)
+        month_expenses = get_expenses(conn, start_date=start_date, end_date_exclusive=end_date)
+        report = generate_monthly_report(month_expenses, self.current_month_str)
+
+        # Update Stat Cards
+        self.total_card.value_label.text = format_amount(report.total_centavos)
+        self.total_card.subtitle = f"{self.current_month_str} Total"
+        self.count_card.value_label.text = str(report.transaction_count)
+
+        # Update Category Breakdown
+        self.bars_container.clear_widgets()
+
+        if not report.categories:
+            self.empty_reports.message = f"No expenses were recorded for {self.current_month_str}."
+            self.bars_container.add_widget(self.empty_reports)
+        else:
+            for cat in report.categories:
+                bar = CategoryReportBar(
+                    category_name=cat.category_name,
+                    amount_centavos=cat.amount_centavos,
+                    percentage=cat.percentage,
+                )
+                self.bars_container.add_widget(bar)
 
     def _nav_to_dashboard(self, *args):
         app = App.get_running_app()

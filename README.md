@@ -1,87 +1,166 @@
 # Automatic Expense Categorizer
 
-Offline-first personal expense tracking application for Android,
-built with Python and Kivy.  Uses a DFA-based keyword matcher to
-automatically suggest expense categories from transaction descriptions.
+An offline-first, mobile personal expense tracking application for Android
+built with **Python, Kivy, DFA pattern matching, and SQLite**.
 
-## Features (planned)
+The application automatically categorizes expenses as you type transaction descriptions
+using a deterministic finite automaton (DFA) keyword-matching algorithm, persists
+data in a local SQLite database, and provides monthly spending breakdowns and category budgets.
 
-- Add, edit, and delete expenses with Philippine peso amounts (₱).
-- DFA-powered automatic category suggestions from descriptions.
-- Monthly spending reports with per-category breakdowns.
-- Per-category monthly budgets with progress tracking.
-- Fully offline — no cloud, bank, or network access required.
+---
 
-## Prerequisites
+## Features
 
+- **DFA-Powered Real-time Categorization**:
+  - Live category suggestions as you type expense descriptions (e.g., `"Jollibee lunch"` $\rightarrow$ `Food`, `"Jeepney fare"` $\rightarrow$ `Transportation`).
+  - Strict whole-word boundary matching (e.g. `"gas"` matches `"gas station"` but not `"gasoline"`).
+  - Explicit manual overrides tracked and permanently preserved.
+- **Accurate Money Handling**:
+  - All monetary values are stored as **integer centavos** (e.g. ₱125.50 $\rightarrow$ `12550`) to eliminate floating-point rounding errors.
+  - Formatted with Philippine Peso (`₱`) currency symbols.
+- **Transaction Ledger**:
+  - Chronological transaction history sorted newest-first.
+  - Category filtering, transaction editing, and safe deletion with confirmation dialogs.
+- **Monthly Analytics & Reports**:
+  - Monthly spending totals, transaction counts, and category percentage breakdown bars.
+  - Previous/next month navigation with automatic year roll-over (`YYYY-MM`).
+- **Category Budgets**:
+  - Set per-category monthly spending limits.
+  - Live progress tracking with visual progress bars strictly clamped to `[0, 1]`.
+  - Color-coded three-tier status alerts: **On Track** ($< 80\%$), **Near Limit** ($80\% - 100\%$), and **Over Budget** ($> 100\%$).
+- **Offline-First & Private**:
+  - Zero cloud dependencies, zero network requests, and zero analytics.
+  - Data is saved in the platform-appropriate app storage directory (`App.user_data_dir` on Android / desktop).
+
+---
+
+## Architecture Overview
+
+```
+DFA_Budget_Tracker/
+├── main.py                          # App entry point
+├── buildozer.spec                   # Android Buildozer packaging configuration
+├── substring_dfa.py                 # Original binary DFA reference (preserved)
+│
+├── expense_app/
+│   ├── app.py                       # Kivy App, ScreenManager, & Bottom Navigation
+│   ├── config.py                    # Default categories, starter rules, constants
+│   │
+│   ├── logic/                       # Pure business logic (Zero Kivy/SQLite dependencies)
+│   │   ├── dfa.py                   # Generalized text DFA (construction & simulation)
+│   │   ├── categorizer.py           # Multi-rule matching & priority conflict resolution
+│   │   ├── money.py                 # Centavo integer parsing & peso formatting
+│   │   └── reporting.py             # Pure report analytics & budget progress calculations
+│   │
+│   ├── data/                        # Persistence Layer
+│   │   ├── database.py              # SQLite connection, schema, & idempotent seeding
+│   │   └── repositories.py          # Parameterized CRUD operations for records
+│   │
+│   └── ui/                          # Presentation Layer (Kivy)
+│       ├── components.py            # Reusable mobile widgets (Cards, Dialogs, Inputs, Buttons)
+│       └── screens/
+│           ├── dashboard.py         # Summary metrics, recent transactions, & quick shortcuts
+│           ├── add_expense.py       # Live DFA expense recording form
+│           ├── transactions.py      # Expense ledger with filtering, edit, & delete
+│           ├── reports.py           # Monthly spending analytics & visual breakdown bars
+│           └── budgets.py           # Category budget limits & progress tracking
+│
+└── tests/                           # Comprehensive automated test suite
+    ├── conftest.py                  # Pytest fixtures (temporary SQLite DB)
+    ├── test_dfa.py                  # DFA engine tests (55 tests)
+    ├── test_categorizer.py          # Categorizer & rule matching tests (45 tests)
+    ├── test_money.py                # Centavo parsing and formatting tests (20 tests)
+    ├── test_database.py             # Schema, foreign keys, & seeding tests (11 tests)
+    ├── test_expenses.py             # Repository CRUD & pagination tests (14 tests)
+    ├── test_reporting.py            # Month range & date validation tests (14 tests)
+    ├── test_reports.py              # Report math & database integration tests (14 tests)
+    ├── test_budgets.py              # Budget limits, upsert, & progress tests (16 tests)
+    ├── test_ui.py                   # Widget trees & navigation tests (13 tests)
+    ├── test_smoke.py                # Package imports & config checks (3 tests)
+    └── test_integration_scenario.py # Full 10-step guide acceptance scenario (1 test)
+```
+
+---
+
+## Development Setup
+
+### Prerequisites
 - Python 3.11 or later
-- A virtual environment is recommended
+- Virtual environment (`venv`)
 
-## Setup
-
+### Installation
 ```bash
-# Create and activate a virtual environment (if not already done)
-python -m venv .venv
+# 1. Clone repository and navigate to root
+cd DFA_Budget_Tracker
 
-# Windows
+# 2. Activate virtual environment
+# On Windows:
 .venv\Scripts\activate
-
-# macOS/Linux
+# On Linux/macOS:
 source .venv/bin/activate
 
-# Install dependencies
+# 3. Install dependencies
 pip install -r requirements-dev.txt
 ```
 
-## Run the App
+---
+
+## Running the Application (Desktop)
 
 ```bash
 python main.py
 ```
 
-The app launches a Kivy window with placeholder screens.  Navigation
-buttons at the bottom switch between Dashboard, Add Expense,
-Transactions, Reports, and Budgets.
+The application opens in a desktop window optimized for mobile touch targets and navigation.
 
-## Run Tests
+---
+
+## Running Automated Tests
+
+Run the full pytest suite:
 
 ```bash
 python -m pytest -v
 ```
 
-## Project Structure
-
-```
-DFA_Budget_Tracker/
-├── main.py                  # App entry point
-├── substring_dfa.py         # Original binary DFA (preserved)
-├── expense_app/
-│   ├── app.py               # Kivy App class and screen setup
-│   ├── config.py            # Default categories, rules, constants
-│   ├── logic/               # Business logic (DFA, categorizer, money)
-│   ├── data/                # SQLite database and repositories
-│   └── ui/                  # Kivy screens and components
-│       └── screens/
-└── tests/                   # pytest test suite
+Bytecode verification:
+```bash
+python -m compileall main.py expense_app -q
 ```
 
-## Technology Stack
+---
 
-| Component     | Technology          |
-|---------------|---------------------|
-| Language      | Python              |
-| UI framework  | Kivy                |
-| Database      | SQLite (sqlite3)    |
-| Testing       | pytest              |
-| Android build | Buildozer (planned) |
+## Android Packaging with Buildozer
 
-## Currency
+Buildozer packages the Python and Kivy code into an Android `.apk` file using `python-for-android`.
 
-All monetary values are stored as **integer centavos** internally
-(e.g., ₱125.50 → 12550) to avoid floating-point rounding errors.
-Amounts are displayed with the `₱` symbol and two decimal places.
+### Requirements
+- Linux or macOS (On Windows, use **WSL2**).
+- OpenJDK 17, Android SDK tools, Git, and system build libraries (`libffi-dev`, `libssl-dev`, `zlib1g-dev`, `build-essential`).
 
-## License
+### Build Steps (Inside Linux / WSL2)
+```bash
+# 1. Install buildozer
+pip install --user buildozer
 
-Private project — not currently published.
+# 2. Build debug APK
+buildozer -v android debug
+```
 
+The output debug APK will be created in the `bin/` directory:
+```
+bin/expensecategorizer-0.1.0-arm64-v8a-debug.apk
+```
+
+Install and test on an Android device via USB debugging:
+```bash
+adb install -r bin/expensecategorizer-0.1.0-arm64-v8a-debug.apk
+```
+
+---
+
+## Offline-First Guarantee & Privacy
+
+- **No Network Access**: The app requests no internet permissions in `buildozer.spec`.
+- **Local Storage**: All categories, keyword rules, expenses, and monthly budgets are stored in a local SQLite file (`expenses.db`) in the application's private data sandbox.
+- **Zero Third-party Services**: No bank APIs, advertising SDKs, cloud logins, or telemetry tracking.
