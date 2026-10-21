@@ -1,0 +1,8 @@
+# Development dependencies for the Expense Categorizer.
+#
+# Install with:
+#   pip install -r requirements-dev.txt
+
+kivy>=2.3.0,<3.0
+pytest>=8.0
+
