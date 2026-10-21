@@ -210,3 +210,4 @@ class TestFullGuideIntegrationScenario:
         assert get_expense_by_id(new_conn, exp1_id) is None
 
         new_conn.close()
+
